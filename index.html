@@ -1,163 +1,187 @@
-import React, { useRef, useMemo, useEffect } from 'react';
-import { Canvas, useFrame, extend } from '@react-three/fiber';
-import { OrbitControls, Effects } from '@react-three/drei';
-import { UnrealBloomPass } from 'three-stdlib';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>O-Slash Particles</title>
+  <style>
+    * { margin: 0; padding: 0; }
+    body { background: transparent; overflow: hidden; }
+    canvas { display: block; }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+<script type="module">
 import * as THREE from 'three';
+import { OrbitControls }  from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass }     from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
-extend({ UnrealBloomPass });
+// ── CONFIG ────────────────────────────────────────────────
+const COUNT      = 10000;
+const SPEED_MULT = 0.8;
+const PARAMS     = { size:22, thick:0.20, dep:1.8, swarm:0.18, spd:0.8, tilt:0.38 };
+const addControl = (id, _l, _min, _max, val) =>
+  PARAMS[id] !== undefined ? PARAMS[id] : val;
 
-const ParticleSwarm = () => {
-  const meshRef = useRef();
-  const count = 10000;
-  const speedMult = 0.8;
-  const dummy = useMemo(() => new THREE.Object3D(), []);
-  const target = useMemo(() => new THREE.Vector3(), []);
-  const pColor = useMemo(() => new THREE.Color(), []);
-  const color = pColor; // Alias for user code compatibility
-  
-  const positions = useMemo(() => {
-     const pos = [];
-     for(let i=0; i<count; i++) pos.push(new THREE.Vector3((Math.random()-0.5)*100, (Math.random()-0.5)*100, (Math.random()-0.5)*100));
-     return pos;
-  }, []);
+// ── SCENE ─────────────────────────────────────────────────
+const scene    = new THREE.Scene();
+const camera   = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 2000);
+camera.position.set(0, 0, 100);
 
-  // Material & Geom
-  const material = useMemo(() => new THREE.MeshBasicMaterial({ color: 0xffffff }), []);
-  const geometry = useMemo(() => new THREE.TetrahedronGeometry(0.25), []);
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(devicePixelRatio);
+document.body.appendChild(renderer.domElement);
 
-  const PARAMS = useMemo(() => ({"size":22,"thick":0.204,"dep":1.025,"swarm":0.18,"spd":0.8,"tilt":0.38}), []);
-  const addControl = (id, l, min, max, val) => {
-      return PARAMS[id] !== undefined ? PARAMS[id] : val;
-  };
-  const setInfo = () => {};
-  const annotate = () => {};
+// ── POST-PROCESSING ───────────────────────────────────────
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(
+  new THREE.Vector2(innerWidth, innerHeight), 1.8, 0.4, 0
+);
+composer.addPass(bloom);
 
-  useFrame((state) => {
-    if (!meshRef.current) return;
-    const time = state.clock.getElapsedTime() * speedMult;
-    const THREE_LIB = THREE;
+// ── CONTROLS ──────────────────────────────────────────────
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping  = true;
+controls.autoRotate     = true;
+controls.autoRotateSpeed = 1.5;
 
-    if(material.uniforms && material.uniforms.uTime) {
-         material.uniforms.uTime.value = time;
+// ── INSTANCED MESH ────────────────────────────────────────
+const geometry = new THREE.TetrahedronGeometry(0.28);
+const material = new THREE.MeshBasicMaterial({ vertexColors: true });
+const mesh     = new THREE.InstancedMesh(geometry, material, COUNT);
+mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+scene.add(mesh);
+
+// ── DATA ──────────────────────────────────────────────────
+const positions = Array.from({ length: COUNT }, () =>
+  new THREE.Vector3(
+    (Math.random() - 0.5) * 80,
+    (Math.random() - 0.5) * 80,
+    (Math.random() - 0.5) * 80
+  )
+);
+const dummy  = new THREE.Object3D();
+const target = new THREE.Vector3();
+const color  = new THREE.Color();
+
+// ── ANIMATE ───────────────────────────────────────────────
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const time = clock.getElapsedTime() * SPEED_MULT;
+
+  for (let i = 0; i < COUNT; i++) {
+    const size  = addControl('size',  '', 2,   30,  22);
+    const thick = addControl('thick', '', 0.1, 0.5, 0.20);
+    const dep   = addControl('dep',   '', 0.5, 4.0, 1.8);
+    const swarm = addControl('swarm', '', 0,   1.5, 0.18);
+    const spd   = addControl('spd',   '', 0,   3.0, 0.8);
+    const tilt  = addControl('tilt',  '', 0,   1.0, 0.38);
+
+    const t = time * spd;
+    const n = i / COUNT;
+
+    const pulse = 1.0 + Math.sin(t * 0.7) * 0.03;
+    const R     = size * pulse;
+    const halfT = thick * size;
+    const halfD = halfT * dep;
+
+    const ringFrac = 0.70;
+    const isRing   = n < ringFrac;
+
+    let px, py, pz;
+
+    if (isRing) {
+      const rn    = n / ringFrac;
+      const theta = rn * Math.PI * 2;
+      const phi   = (i * 2.39996) % (Math.PI * 2);
+      const cosT  = Math.cos(theta + t * 0.15);
+      const sinT  = Math.sin(theta + t * 0.15);
+      const cosP  = Math.cos(phi);
+      const sinP  = Math.sin(phi);
+      px = (R + halfT * cosP) * cosT;
+      py = (R + halfT * cosP) * sinT;
+      pz = halfD * sinP;
+    } else {
+      const slashIdx   = i - Math.floor(COUNT * ringFrac);
+      const slashCount = COUNT - Math.floor(COUNT * ringFrac);
+      const sn   = slashIdx / slashCount;
+      const st   = sn * 2.0 - 1.0;
+      const sa   = 0.52;
+      const sLen = R * 1.28;
+      const phi2    = (slashIdx * 2.39996) % (Math.PI * 2);
+      const offPerp = Math.cos(phi2) * halfT;
+      const offZ    = Math.sin(phi2) * halfD;
+      const dX =  Math.sin(sa);
+      const dY =  Math.cos(sa);
+      const pX =  Math.cos(sa);
+      const pY = -Math.sin(sa);
+      px = st * dX * sLen + offPerp * pX;
+      py = st * dY * sLen + offPerp * pY;
+      pz = offZ;
     }
 
-    for (let i = 0; i < count; i++) {
-        // USER CODE START
-        const size  = addControl("size",  "Tamanho",        2,  30,  22);
-        const thick = addControl("thick", "Espessura Anel", 0.1, 0.5, 0.20);
-        const dep   = addControl("dep",   "Profundidade 3D",0.5, 4.0, 1.8);
-        const swarm = addControl("swarm", "Swarm",          0,   1.5, 0.18);
-        const spd   = addControl("spd",   "Velocidade",     0,   3.0, 0.8);
-        const tilt  = addControl("tilt",  "Inclinacao",     0,   1.0, 0.38);
-        
-        if (i === 0) {
-          setInfo("Simbolo O-Slash 3D", "Simbolo O 15k particulas #FF0033");
-          annotate("o", new THREE.Vector3(0, 0, 0), "O");
-        }
-        
-        const t = time * spd;
-        const n = i / count;
-        
-        const pulse = 1.0 + Math.sin(t * 0.7) * 0.03;
-        const R     = size * pulse;
-        const halfT = thick * size;
-        const halfD = halfT * dep;
-        
-        const ringFrac = 0.70;
-        const isRing   = n < ringFrac;
-        
-        let px, py, pz;
-        
-        if (isRing) {
-          const rn    = n / ringFrac;
-          const theta = rn * Math.PI * 2;
-          const phi   = (i * 2.39996) % (Math.PI * 2);
-        
-          const cosT = Math.cos(theta + t * 0.15);
-          const sinT = Math.sin(theta + t * 0.15);
-          const cosP = Math.cos(phi);
-          const sinP = Math.sin(phi);
-        
-          px = (R + halfT * cosP) * cosT;
-          py = (R + halfT * cosP) * sinT;
-          pz = halfD * sinP;
-        
-        } else {
-          const slashIdx   = i - Math.floor(count * ringFrac);
-          const slashCount = count - Math.floor(count * ringFrac);
-          const sn = slashIdx / slashCount;
-          const st = sn * 2.0 - 1.0;
-        
-          const sa   = 0.52;
-          const sLen = R * 1.28;
-        
-          const phi2    = (slashIdx * 2.39996) % (Math.PI * 2);
-          const offPerp = Math.cos(phi2) * halfT;
-          const offZ    = Math.sin(phi2) * halfD;
-        
-          const dX =  Math.sin(sa);
-          const dY =  Math.cos(sa);
-          const pX =  Math.cos(sa);
-          const pY = -Math.sin(sa);
-        
-          px = st * dX * sLen + offPerp * pX;
-          py = st * dY * sLen + offPerp * pY;
-          pz = offZ;
-        }
-        
-        const rotY  = t * 0.15;
-        const cosRY = Math.cos(rotY);
-        const sinRY = Math.sin(rotY);
-        const rxRot = px * cosRY - pz * sinRY;
-        const rzRot = px * sinRY + pz * cosRY;
-        
-        const tiltAng = tilt * 0.65;
-        const cosTX   = Math.cos(tiltAng);
-        const sinTX   = Math.sin(tiltAng);
-        const ryFin   = py * cosTX - rzRot * sinTX;
-        const rzFin   = py * sinTX + rzRot * cosTX;
-        
-        const nt = t * 0.55 + n * 11.0;
-        const nx = Math.sin(nt * 1.3 + n * 6.1) * swarm * 0.28;
-        const ny = Math.cos(nt * 1.0 + n * 4.9) * swarm * 0.28;
-        const nz = Math.sin(nt * 0.8 + n * 8.3) * swarm * 0.2;
-        
-        target.set(rxRot + nx, ryFin + ny, rzFin + nz);
-        
-        // Cor #FF0033 = HSL(348°, 100%, 50%) = hue 0.967
-        const hue = 0.0;
-        const sat = 98;
-        const lit = 0.39 + Math.sin(n * Math.PI * 10 + t * 1.8) * 0.10 + (isRing ? 0.0 : 0.05);
-        color.setHSL(hue, sat, lit);
-        
-        // USER CODE END
+    const rotY  = t * 0.15;
+    const cosRY = Math.cos(rotY);
+    const sinRY = Math.sin(rotY);
+    const rxRot = px * cosRY - pz * sinRY;
+    const rzRot = px * sinRY + pz * cosRY;
 
-        positions[i].lerp(target, 0.1);
-        dummy.position.copy(positions[i]);
-        dummy.updateMatrix();
-        meshRef.current.setMatrixAt(i, dummy.matrix);
-        meshRef.current.setColorAt(i, pColor);
-    }
-    meshRef.current.instanceMatrix.needsUpdate = true;
-    if (meshRef.current.instanceColor) meshRef.current.instanceColor.needsUpdate = true;
-  });
+    const tiltAng = tilt * 0.65;
+    const cosTX   = Math.cos(tiltAng);
+    const sinTX   = Math.sin(tiltAng);
+    const ryFin   = py  * cosTX - rzRot * sinTX;
+    const rzFin   = py  * sinTX + rzRot * cosTX;
 
-  return (
-    <instancedMesh ref={meshRef} args={[geometry, material, count]} />
-  );
-};
+    const nt = t * 0.55 + n * 11.0;
+    const nx = Math.sin(nt * 1.3 + n * 6.1) * swarm * 0.28;
+    const ny = Math.cos(nt * 1.0 + n * 4.9) * swarm * 0.28;
+    const nz = Math.sin(nt * 0.8 + n * 8.3) * swarm * 0.2;
 
-export default function App() {
-  return (
-    <div style={{ width: '100vw', height: '100vh', background: '#000' }}>
-      <Canvas camera={{ position: [0, 0, 100], fov: 60 }}>
-        <fog attach="fog" args={['#000000', 0.01]} />
-        <ParticleSwarm />
-        <OrbitControls autoRotate={true} />
-        <Effects disableGamma>
-            <unrealBloomPass threshold={0} strength={1.8} radius={0.4} />
-        </Effects>
-      </Canvas>
-    </div>
-  );
+    target.set(rxRot + nx, ryFin + ny, rzFin + nz);
+
+    // Cor #C70202
+    const hue = 0.0;
+    const sat = 0.98;
+    const lit = 0.39 + Math.sin(n * Math.PI * 10 + t * 1.8) * 0.08
+                     + (isRing ? 0.0 : 0.04);
+    color.setHSL(hue, sat, lit);
+
+    positions[i].lerp(target, 0.1);
+    dummy.position.copy(positions[i]);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(i, dummy.matrix);
+    mesh.setColorAt(i, color);
+  }
+
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+
+  controls.update();
+  composer.render();
 }
+animate();
+
+// ── RESIZE ────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>
