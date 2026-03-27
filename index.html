@@ -6,7 +6,7 @@
   <title>O-Slash Particles</title>
   <style>
     * { margin: 0; padding: 0; }
-    body { background: transparent; overflow: hidden; }
+    body { background: #000; overflow: hidden; }
     canvas { display: block; }
   </style>
   <script type="importmap">
@@ -21,67 +21,71 @@
 <body>
 <script type="module">
 import * as THREE from 'three';
-import { OrbitControls }  from 'three/addons/controls/OrbitControls.js';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass }     from 'three/addons/postprocessing/RenderPass.js';
+import { OrbitControls }   from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer }  from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass }      from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
-// ── CONFIG ────────────────────────────────────────────────
-const COUNT      = 10000;
-const SPEED_MULT = 0.8;
-const PARAMS     = { size:22, thick:0.20, dep:1.8, swarm:0.18, spd:0.8, tilt:0.38 };
+const COUNT  = 10000;
+const PARAMS = { size:22, thick:0.20, dep:1.8, swarm:0.18, spd:0.8, tilt:0.38 };
 const addControl = (id, _l, _min, _max, val) =>
   PARAMS[id] !== undefined ? PARAMS[id] : val;
 
-// ── SCENE ─────────────────────────────────────────────────
-const scene    = new THREE.Scene();
-const camera   = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 2000);
-camera.position.set(0, 0, 100);
-
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+// ── RENDERER ── ✅ sem alpha para garantir bloom funcionar
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setSize(innerWidth, innerHeight);
-renderer.setPixelRatio(devicePixelRatio);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setClearColor(0x000000, 1);
 document.body.appendChild(renderer.domElement);
 
-// ── POST-PROCESSING ───────────────────────────────────────
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 2000);
+camera.position.set(0, 0, 100);
+
+// ── BLOOM ──────────────────────────────────────────────────
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(
-  new THREE.Vector2(innerWidth, innerHeight), 1.8, 0.4, 0
+  new THREE.Vector2(innerWidth, innerHeight), 1.8, 0.5, 0.0
 );
 composer.addPass(bloom);
 
-// ── CONTROLS ──────────────────────────────────────────────
+// ── CONTROLS ───────────────────────────────────────────────
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping  = true;
-controls.autoRotate     = true;
+controls.enableDamping   = true;
+controls.autoRotate      = true;
 controls.autoRotateSpeed = 1.5;
 
-// ── INSTANCED MESH ────────────────────────────────────────
-const geometry = new THREE.TetrahedronGeometry(0.28);
+// ── MESH ── ✅ vertexColors obrigatório para instanceColor
+const geometry = new THREE.TetrahedronGeometry(0.3);
 const material = new THREE.MeshBasicMaterial({ vertexColors: true });
 const mesh     = new THREE.InstancedMesh(geometry, material, COUNT);
 mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 scene.add(mesh);
 
-// ── DATA ──────────────────────────────────────────────────
+// ── ✅ Inicializar cores antes do primeiro frame
+const initColor = new THREE.Color(0xC70202);
+for (let k = 0; k < COUNT; k++) mesh.setColorAt(k, initColor);
+mesh.instanceColor.needsUpdate = true;
+
+// ── DATA ───────────────────────────────────────────────────
 const positions = Array.from({ length: COUNT }, () =>
   new THREE.Vector3(
-    (Math.random() - 0.5) * 80,
-    (Math.random() - 0.5) * 80,
-    (Math.random() - 0.5) * 80
+    (Math.random() - 0.5) * 60,
+    (Math.random() - 0.5) * 60,
+    (Math.random() - 0.5) * 60
   )
 );
 const dummy  = new THREE.Object3D();
 const target = new THREE.Vector3();
 const color  = new THREE.Color();
 
-// ── ANIMATE ───────────────────────────────────────────────
+// ── LOOP ───────────────────────────────────────────────────
 const clock = new THREE.Clock();
 
 function animate() {
   requestAnimationFrame(animate);
-  const time = clock.getElapsedTime() * SPEED_MULT;
+  const time = clock.getElapsedTime();
 
   for (let i = 0; i < COUNT; i++) {
     const size  = addControl('size',  '', 2,   30,  22);
@@ -125,26 +129,22 @@ function animate() {
       const phi2    = (slashIdx * 2.39996) % (Math.PI * 2);
       const offPerp = Math.cos(phi2) * halfT;
       const offZ    = Math.sin(phi2) * halfD;
-      const dX =  Math.sin(sa);
-      const dY =  Math.cos(sa);
-      const pX =  Math.cos(sa);
-      const pY = -Math.sin(sa);
+      const dX =  Math.sin(sa); const dY = Math.cos(sa);
+      const pX =  Math.cos(sa); const pY = -Math.sin(sa);
       px = st * dX * sLen + offPerp * pX;
       py = st * dY * sLen + offPerp * pY;
       pz = offZ;
     }
 
     const rotY  = t * 0.15;
-    const cosRY = Math.cos(rotY);
-    const sinRY = Math.sin(rotY);
+    const cosRY = Math.cos(rotY); const sinRY = Math.sin(rotY);
     const rxRot = px * cosRY - pz * sinRY;
     const rzRot = px * sinRY + pz * cosRY;
 
     const tiltAng = tilt * 0.65;
-    const cosTX   = Math.cos(tiltAng);
-    const sinTX   = Math.sin(tiltAng);
-    const ryFin   = py  * cosTX - rzRot * sinTX;
-    const rzFin   = py  * sinTX + rzRot * cosTX;
+    const cosTX = Math.cos(tiltAng); const sinTX = Math.sin(tiltAng);
+    const ryFin = py * cosTX - rzRot * sinTX;
+    const rzFin = py * sinTX + rzRot * cosTX;
 
     const nt = t * 0.55 + n * 11.0;
     const nx = Math.sin(nt * 1.3 + n * 6.1) * swarm * 0.28;
@@ -154,11 +154,9 @@ function animate() {
     target.set(rxRot + nx, ryFin + ny, rzFin + nz);
 
     // Cor #C70202
-    const hue = 0.0;
-    const sat = 0.98;
     const lit = 0.39 + Math.sin(n * Math.PI * 10 + t * 1.8) * 0.08
                      + (isRing ? 0.0 : 0.04);
-    color.setHSL(hue, sat, lit);
+    color.setHSL(0.0, 0.98, lit);
 
     positions[i].lerp(target, 0.1);
     dummy.position.copy(positions[i]);
@@ -168,14 +166,13 @@ function animate() {
   }
 
   mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  mesh.instanceColor.needsUpdate  = true;
 
   controls.update();
   composer.render();
 }
 animate();
 
-// ── RESIZE ────────────────────────────────────────────────
 window.addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
